@@ -12,7 +12,7 @@ class Payment
         $val['pay_method'] = " ";
         $val['amount'] = round($order->final_amount, 2);
         $val['currency'] = $order->gateway_currency;
-        $val['succes_url'] = route('success');
+        $val['success_url'] = route('success');
         $val['cancel_url'] = route('user.addFund');
         $val['callback_url'] = route('ipn', ['code' => $gateway->code, 'trx' => $order->transaction]);
         $val['cus_email'] = optional($order->user)->email;
