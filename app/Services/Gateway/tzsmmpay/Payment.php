@@ -16,6 +16,7 @@ class Payment
         $val['cancel_url'] = route('user.addFund');
         $val['callback_url'] = route('ipn', ['code' => $gateway->code, 'trx' => $order->transaction]);
         $val['cus_email'] = optional($order->user)->email;
+        $val['cus_number'] = optional($order->user)->phone ?? '0170000';
         $val['cus_name'] = optional($order->user)->firstname . optional($order->user)->lastname;
         $val['api_key'] = $gateway->parameters->api_key;
         $val['addi_info'] = "Payment";
