@@ -2,8 +2,10 @@
 
 namespace App\Services\Gateway\tzsmmpay;
 
-use App\Fund;
+use App\Models\Fund;
 use Facades\App\Services\BasicService;
+use Illuminate\Support\Facades\Http;
+
 
 class Payment
 {
@@ -32,71 +34,111 @@ class Payment
 
     public static function ipn($request, $gateway, $order = null, $trx = null, $type = null)
     {
-        $validator = \Validator::make($request->all(), [
-            'amount' => 'required|numeric',
-            'cus_name' => 'required',
-            'cus_email' => 'required|email',
-            'cus_number' => 'required',
-            'trx_id' => 'required',
-            'status' => 'required',
-            'extra' => 'nullable|array',
-        ]);
-    
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'messages' => implode(', ', $validator->errors()->all()),
+        try {
+            $validator = \Validator::make($request->all(), [
+                'amount' => 'required|numeric',
+                'cus_name' => 'required',
+                'cus_email' => 'required|email',
+                'cus_number' => 'required',
+                'trx_id' => 'required',
+                'status' => 'required',
+                'extra' => 'nullable|array',
             ]);
-        }
     
-        if ($request->status === 'Completed') {
-            if (!$order) {
-                return response()->json(['error' => 'Order not found.'], 400);
+            if ($validator->fails()) {
+                return [
+                    'success' => false,
+                    'status' => 'error',
+                    'msg' => implode(', ', $validator->errors()->all()),
+                ];
             }
     
-            if (!$gateway || !isset($gateway->parameters->api_key)) {
-                return response()->json(['error' => 'Payment gateway details missing.'], 400);
+            if ($request->status !== 'Completed') {
+                return [
+                    'success' => false,
+                    'status' => 'error',
+                    'msg' => 'Payment status is: ' . $request->status,
+                ];
+            }
+    
+            if (!$order) {
+                return [
+                    'success' => false,
+                    'status' => 'error',
+                    'msg' => 'Order not found.',
+                ];
+            }
+    
+            if (!$gateway || empty($gateway->parameters->api_key)) {
+                return [
+                    'success' => false,
+                    'status' => 'error',
+                    'msg' => 'Payment gateway details missing.',
+                ];
             }
     
             $old = Fund::where('payment_id', $request->trx_id)->first();
             if ($old) {
-                return response()->json(['error' => 'Transaction ID already used.'], 400);
+                return [
+                    'success' => false,
+                    'status' => 'error',
+                    'msg' => 'Transaction ID already used.',
+                ];
             }
     
+            // Payment verification request
             $response = Http::post('https://tzsmmpay.com/api/payment/verify', [
                 'trx_id' => $request->trx_id,
                 'api_key' => $gateway->parameters->api_key,
             ]);
     
+            // Handle HTTP response errors
             if ($response->failed()) {
-                return response()->json([
-                    'error' => 'Payment verification failed.',
-                    'details' => $response->json()
-                ], 400);
+                return [
+                    'success' => false,
+                    'status' => 'error',
+                    'msg' => 'Payment verification request failed.',
+                    'status_code' => $response->status(),
+                    'details' => $response->body(),
+                ];
             }
     
+            // Get response data
             $responseData = $response->json();
             if (!is_array($responseData) || !isset($responseData['status']) || $responseData['status'] !== 'Completed') {
-                return response()->json([
-                    'error' => 'Invalid request or payment verification failed.',
+                return [
+                    'success' => false,
+                    'status' => 'error',
+                    'msg' => 'Invalid request or payment verification failed.',
                     'details' => $responseData
-                ], 400);
+                ];
             }
     
+            // Save transaction details
             $order->payment_id = $request->trx_id;
             $order->save();
+    
+            // Process payment success
             BasicService::preparePaymentUpgradation($order);
     
-            return response()->json([
+            return [
                 'success' => true,
-                'messages' => 'Payment Success',
-            ]);
-        } else {
-            return response()->json([
+                'status' => 'success',
+                'msg' => 'Payment Success',
+                'redirect' => route('user.fund-history'),
+            ];
+        } catch (\Exception $e) {
+            return [
                 'success' => false,
-                'messages' => 'Payment status is: ' . $request->status,
-            ]);
+                'status' => 'error',
+                'msg' => 'An error occurred.',
+                'error_message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile(),
+            ];
         }
     }
+
+
 
 }
